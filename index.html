@@ -12,7 +12,7 @@
     .box { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
     button { background: #855cd6; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 15px; }
     button:hover { background: #724bb7; }
-    .status { text-align: center; color: #444; font-weight: bold; margin: 15px 0; font-size: 15px; background: #e2e8f0; padding: 10px; border-radius: 8px; }
+    .status { text-align: center; color: #444; font-weight: bold; margin: 15px 0; font-size: 15px; background: #e2e8f0; padding: 10px; border-radius: 8px; word-break: break-all; }
     
     .block-item { background: #f9f9f9; border-left: 5px solid #855cd6; padding: 12px; margin-bottom: 10px; border-radius: 0 8px 8px 0; display: flex; flex-direction: column; gap: 8px; }
     .block-info { font-size: 12px; color: #666; font-weight: bold; }
@@ -50,8 +50,10 @@
     let inputReferences = [];
 
     document.getElementById('fileInput').addEventListener('change', (e) => {
-      const file = e.target.files[0]; // 最初のファイルを取得
-      if (!file) return;
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+      
+      const file = files[0]; // ★ここを修正：配列から最初の1ファイルを確実に指定
 
       document.getElementById('statusText').innerText = "ファイルを展開中...";
       document.getElementById('editorBox').style.display = 'none';
@@ -59,7 +61,6 @@
       blockListDiv.innerHTML = "";
       inputReferences = [];
 
-      // iPad/iPhoneでも確実にバイナリとして読むためのReader
       const reader = new FileReader();
       
       reader.onload = async (event) => {
@@ -67,12 +68,11 @@
           const arrayBuffer = event.target.result;
           const zip = new JSZip();
           
-          // ArrayBufferを使って確実にZIPを展開
           loadedZip = await zip.loadAsync(arrayBuffer);
           
           const jsonFile = loadedZip.file("project.json");
           if (!jsonFile) {
-            document.getElementById('statusText').innerText = "エラー：ファイルの中に project.json がありません。";
+            document.getElementById('statusText').innerText = "エラー：ファイルの中に project.json がありませんでした。";
             return;
           }
 
@@ -94,11 +94,11 @@
                   for (const inputKey in block.inputs) {
                     const inputData = block.inputs[inputKey];
                     
-                    // Scratch 3.0の一般的なブロック入力欄データ構造
-                    if (Array.isArray(inputData) && inputData.length >= 2 && Array.isArray(inputData[1])) {
+                    // Scratch 3.0のデータ構造を解析
+                    if (Array.isArray(inputData) && inputData.length >= 2) {
                       const valueContainer = inputData[1];
                       
-                      if (valueContainer.length >= 2) {
+                      if (Array.isArray(valueContainer) && valueContainer.length >= 2) {
                         const currentValue = valueContainer[1];
                         const uniqueInputId = `hack_input_${inputIdCounter++}`;
 
@@ -131,7 +131,7 @@
           }
 
           if (inputReferences.length === 0) {
-            document.getElementById('statusText').innerText = "読み込み完了。変更可能な入力欄が見つかりませんでした。別のsb3ファイルで試してみてね！";
+            document.getElementById('statusText').innerText = "読み込み完了。ただし、変更できる入力欄（文字・数字）がブロック内にありませんでした。";
           } else {
             document.getElementById('editorBox').style.display = 'block';
             document.getElementById('statusText').innerText = `成功！${inputReferences.length}個の入力欄を見つけました！`;
@@ -139,7 +139,7 @@
 
         } catch (err) {
           console.error(err);
-          document.getElementById('statusText').innerText = "エラー：ファイルを開く処理で問題が発生しました。(" + err.message + ")";
+          document.getElementById('statusText').innerText = "エラー：" + err.message;
         }
       };
 
