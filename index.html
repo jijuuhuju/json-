@@ -12,9 +12,8 @@
     .box { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
     button { background: #855cd6; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 15px; }
     button:hover { background: #724bb7; }
-    .status { text-align: center; color: #444; font-weight: bold; margin: 15px 0; font-size: 15px; }
+    .status { text-align: center; color: #444; font-weight: bold; margin: 15px 0; font-size: 15px; background: #e2e8f0; padding: 10px; border-radius: 8px; }
     
-    /* ブロックリストのスタイル */
     .block-item { background: #f9f9f9; border-left: 5px solid #855cd6; padding: 12px; margin-bottom: 10px; border-radius: 0 8px 8px 0; display: flex; flex-direction: column; gap: 8px; }
     .block-info { font-size: 12px; color: #666; font-weight: bold; }
     .input-row { display: flex; align-items: center; gap: 10px; }
@@ -38,9 +37,8 @@
 
   <div class="box" id="editorBox" style="display:none;">
     <h3>2. 見つかったブロックの入力欄をハック！</h3>
-    <p style="font-size:13px; color:#666;">※文字や数字を自由に変えてみよう。普通は選べない怪文書や記号も入るよ！</p>
+    <p style="font-size:13px; color:#666;">※文字や数字を自由に変えてみよう！</p>
     
-    <!-- ここに自動で入力欄がズラリと並びます -->
     <div id="blockList"></div>
     
     <button id="downloadBtn">⚡ 改造されたsb3を書き出す</button>
@@ -49,88 +47,104 @@
   <script>
     let loadedZip = null;
     let projectJson = null;
-    // 画面の入力欄と、JSON内のデータの場所を結びつけるためのメモ
     let inputReferences = [];
 
-    document.getElementById('fileInput').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0]; // 最初のファイルを取得
       if (!file) return;
 
-      document.getElementById('statusText').innerText = "ファイルを解析中...";
+      document.getElementById('statusText').innerText = "ファイルを展開中...";
       document.getElementById('editorBox').style.display = 'none';
       const blockListDiv = document.getElementById('blockList');
       blockListDiv.innerHTML = "";
       inputReferences = [];
 
-      try {
-        const zip = new JSZip();
-        loadedZip = await zip.loadAsync(file);
-        const jsonText = await loadedZip.file("project.json").async("text");
-        projectJson = JSON.parse(jsonText);
+      // iPad/iPhoneでも確実にバイナリとして読むためのReader
+      const reader = new FileReader();
+      
+      reader.onload = async (event) => {
+        try {
+          const arrayBuffer = event.target.result;
+          const zip = new JSZip();
+          
+          // ArrayBufferを使って確実にZIPを展開
+          loadedZip = await zip.loadAsync(arrayBuffer);
+          
+          const jsonFile = loadedZip.file("project.json");
+          if (!jsonFile) {
+            document.getElementById('statusText').innerText = "エラー：ファイルの中に project.json がありません。";
+            return;
+          }
 
-        let inputIdCounter = 0;
+          const jsonText = await jsonFile.async("text");
+          projectJson = JSON.parse(jsonText);
 
-        // すべてのスプライトやステージをループ
-        for (const target of projectJson.targets) {
-          const spriteName = target.name;
+          let inputIdCounter = 0;
 
-          // スプライト内のすべてのブロックをループ
-          for (const blockId in target.blocks) {
-            const block = target.blocks[blockId];
-            
-            // 影ブロック（内部的なデータ）や、入力欄が一切ないブロックはスキップ
-            if (block.shadow || !block.inputs) continue;
+          if (projectJson && Array.isArray(projectJson.targets)) {
+            for (const target of projectJson.targets) {
+              const spriteName = target.name || "スプライト";
 
-            // ブロックの中にあるすべての入力欄（数字や文字の丸・四角の隙間）をループ
-            for (const inputKey in block.inputs) {
-              const inputData = block.inputs[inputKey];
-              
-              // ScratchのJSONで、文字や数字が直接入っている配列のパターン（[1, [4, "値"]] など）を狙い撃ち
-              if (Array.isArray(inputData) && inputData[1] && Array.isArray(inputData[1]) && inputData[1].length >= 2) {
-                
-                const currentValue = inputData[1][1];
-                
-                // 内部ID（例: motion_movesteps）を分かりやすくトリミング
-                const cleanOpcode = block.opcode.replace(/[a-z]+_/, ''); 
-                const uniqueInputId = `hack_input_${inputIdCounter++}`;
+              if (target.blocks && typeof target.blocks === 'object') {
+                for (const blockId in target.blocks) {
+                  const block = target.blocks[blockId];
+                  
+                  if (!block || block.shadow || !block.inputs || typeof block.inputs !== 'object') continue;
 
-                // この入力欄がJSONのどこにあったかを記憶しておく
-                inputReferences.push({
-                  elementId: uniqueInputId,
-                  targetInputArray: inputData[1], // 参照をそのまま保存
-                  index: 1
-                });
+                  for (const inputKey in block.inputs) {
+                    const inputData = block.inputs[inputKey];
+                    
+                    // Scratch 3.0の一般的なブロック入力欄データ構造
+                    if (Array.isArray(inputData) && inputData.length >= 2 && Array.isArray(inputData[1])) {
+                      const valueContainer = inputData[1];
+                      
+                      if (valueContainer.length >= 2) {
+                        const currentValue = valueContainer[1];
+                        const uniqueInputId = `hack_input_${inputIdCounter++}`;
 
-                // 画面に表示するHTMLを組み立て
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'block-item';
-                itemDiv.innerHTML = `
-                  <div class="block-info">
-                    <span class="sprite-name">${spriteName}</span>
-                    ブロックの種類: <span style="color:#855cd6;">${cleanOpcode}</span> ＞ 設定項目: [${inputKey}]
-                  </div>
-                  <div class="input-row">
-                    <span class="input-label">中身の文字:</span>
-                    <input type="text" class="hack-input" id="${uniqueInputId}" value="${currentValue}">
-                  </div>
-                `;
-                blockListDiv.appendChild(itemDiv);
+                        inputReferences.push({
+                          elementId: uniqueInputId,
+                          targetArray: valueContainer,
+                          index: 1
+                        });
+
+                        const cleanOpcode = (block.opcode || "unknown").replace(/[a-z]+_/, ''); 
+                        const itemDiv = document.createElement('div');
+                        itemDiv.className = 'block-item';
+                        itemDiv.innerHTML = `
+                          <div class="block-info">
+                            <span class="sprite-name">${spriteName}</span>
+                            ブロック: <span style="color:#855cd6;">${cleanOpcode}</span> ＞ 項目: [${inputKey}]
+                          </div>
+                          <div class="input-row">
+                            <span class="input-label">設定値:</span>
+                            <input type="text" class="hack-input" id="${uniqueInputId}" value="${currentValue}">
+                          </div>
+                        `;
+                        blockListDiv.appendChild(itemDiv);
+                      }
+                    }
+                  }
+                }
               }
             }
           }
-        }
 
-        if (inputReferences.length === 0) {
-          document.getElementById('statusText').innerText = "ファイル内に文字や数字を入力できるブロックが見つかりませんでした。";
-        } else {
-          document.getElementById('editorBox').style.display = 'block';
-          document.getElementById('statusText').innerText = `${inputReferences.length}個の入力欄を見つけました！好きな文字にハックしよう！`;
-        }
+          if (inputReferences.length === 0) {
+            document.getElementById('statusText').innerText = "読み込み完了。変更可能な入力欄が見つかりませんでした。別のsb3ファイルで試してみてね！";
+          } else {
+            document.getElementById('editorBox').style.display = 'block';
+            document.getElementById('statusText').innerText = `成功！${inputReferences.length}個の入力欄を見つけました！`;
+          }
 
-      } catch (err) {
-        console.error(err);
-        document.getElementById('statusText').innerText = "エラー：ファイルを開けませんでした。";
-      }
+        } catch (err) {
+          console.error(err);
+          document.getElementById('statusText').innerText = "エラー：ファイルを開く処理で問題が発生しました。(" + err.message + ")";
+        }
+      };
+
+      // ファイルの読み込みを開始
+      reader.readAsArrayBuffer(file);
     });
 
     // 書き出し・ダウンロード処理
@@ -139,22 +153,19 @@
 
       document.getElementById('statusText').innerText = "改造データを生成中...";
 
-      // 画面上のすべての入力欄の文字を、JSONの元の場所に上書きしていく
       for (const ref of inputReferences) {
         const inputEl = document.getElementById(ref.elementId);
         if (inputEl) {
-          ref.targetInputArray[ref.index] = inputEl.value; // JSONデータを直接書き換え！
+          ref.targetArray[ref.index] = inputEl.value;
         }
       }
 
-      // project.jsonを上書きパック
       loadedZip.file("project.json", JSON.stringify(projectJson));
       const blob = await loadedZip.generateAsync({ type: "blob" });
 
-      // ダウンロード
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = "all_hacked_project.sb3";
+      link.download = "hacked_project.sb3";
       link.click();
 
       document.getElementById('statusText').innerText = "ハック完了！改造版のダウンロードに成功しました！";
